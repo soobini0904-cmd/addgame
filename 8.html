@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>수박게임 - 황금코어 에디션</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Matter.js 물리 엔진 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <!-- Google Fonts (Jua & Pretendard/Inter) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Jua&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at top, #1e293b 0%, #0f172a 100%);
+      color: #f8fafc;
+      margin: 0;
+      padding: 0;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+    }
+
+    .font-game {
+      font-family: 'Jua', sans-serif;
+    }
+
+    /* 게임 컨테이너 유리 질감 및 그림자 */
+    .game-container-frame {
+      background: rgba(15, 23, 42, 0.75);
+      border: 3px solid rgba(148, 163, 184, 0.25);
+      box-shadow: 
+        0 20px 50px rgba(0, 0, 0, 0.6),
+        inset 0 0 24px rgba(56, 189, 248, 0.08);
+      backdrop-filter: blur(8px);
+      border-radius: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    /* 위험선 경고 애니메이션 */
+    @keyframes pulseDanger {
+      0%, 100% { opacity: 0.45; }
+      50% { opacity: 1; }
+    }
+    .danger-pulse {
+      animation: pulseDanger 0.7s infinite ease-in-out;
+    }
+
+    /* 버튼 스타일 */
+    .btn-glossy {
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      color: #0f172a;
+      box-shadow: 0 4px 15px rgba(251, 191, 36, 0.4), inset 0 2px 2px rgba(255, 255, 255, 0.5);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn-glossy:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(251, 191, 36, 0.55), inset 0 2px 2px rgba(255, 255, 255, 0.6);
+    }
+    .btn-glossy:active {
+      transform: translateY(1px);
+    }
+  </style>
+</head>
+<body class="p-3 sm:p-5">
+
+  <!-- 메인 레이아웃 래퍼 -->
+  <div class="w-full max-w-4xl flex flex-col lg:flex-row items-center lg:items-start justify-center gap-5">
+    
+    <!-- 왼쪽/상단: 게임 플레이 영역 -->
+    <div class="flex flex-col items-center w-full max-w-[390px]">
+      
+      <!-- 상단 HUD 헤더 -->
+      <header class="w-full flex items-center justify-between gap-2 mb-3 bg-slate-800/80 border border-slate-700/70 rounded-2xl p-3 shadow-lg backdrop-blur-md">
+        <!-- 현재 점수 -->
+        <div class="flex flex-col">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">점수</span>
+          <span id="scoreDisplay" class="font-game text-2xl sm:text-3xl text-amber-400 leading-none mt-0.5">0</span>
+        </div>
+
+        <!-- 최고 점수 -->
+        <div class="flex flex-col items-center border-x border-slate-700/80 px-3">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">최고 점수</span>
+          <span id="bestScoreDisplay" class="font-game text-lg sm:text-xl text-slate-200 leading-none mt-1">0</span>
+        </div>
+
+        <!-- 다음 아이템 & 사운드 버튼 -->
+        <div class="flex items-center gap-2.5">
+          <div class="flex flex-col items-center">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">다음</span>
+            <div id="nextPreview" class="w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-inner border border-white/20 transition-all duration-200" style="background: #38bdf8;">
+              🌱
+            </div>
+          </div>
+
+          <button id="muteBtn" title="효과음 켜기/끄기" class="w-10 h-10 rounded-xl bg-slate-700/80 hover:bg-slate-600 border border-slate-600 flex items-center justify-center text-lg transition active:scale-95">
+            🔊
+          </button>
+        </div>
+      </header>
+
+      <!-- 게임 캔버스 프레임 -->
+      <div id="canvasWrapper" class="game-container-frame w-full aspect-[380/560]">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- 위험 경고 배지 (위험선 초과 시 표시) -->
+        <div id="dangerWarning" class="hidden absolute top-3 left-1/2 -translate-x-1/2 bg-rose-600/90 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-rose-300/40 pointer-events-none danger-pulse">
+          ⚠️ 위험! 곧 게임 오버!
+        </div>
+
+        <!-- 게임 오버 모달 오버레이 -->
+        <div id="gameOverOverlay" class="hidden absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20 transition-opacity">
+          <div class="text-5xl mb-2 animate-bounce">👑</div>
+          <h2 class="font-game text-4xl text-white mb-1 tracking-wide">게임 오버!</h2>
+          <p class="text-slate-400 text-sm mb-5">컨테이너가 가득 찼습니다.</p>
+          
+          <div class="w-full bg-slate-800/90 border border-slate-700 rounded-2xl p-4 mb-6 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-slate-400 text-sm font-medium">최종 점수</span>
+              <span id="finalScoreDisplay" class="font-game text-2xl text-amber-400">0</span>
+            </div>
+            <div class="flex justify-between items-center border-t border-slate-700/70 pt-2">
+              <span class="text-slate-400 text-sm font-medium">최고 기록</span>
+              <span id="finalBestDisplay" class="font-game text-xl text-emerald-400">0</span>
+            </div>
+          </div>
+
+          <button id="restartBtn" class="btn-glossy font-game text-xl w-full py-3.5 rounded-2xl cursor-pointer">
+            🔄 다시 하기
+          </button>
+        </div>
+      </div>
+
+      <!-- 모바일/데스크탑 조작 안내 -->
+      <p class="text-xs text-slate-400 mt-2.5 text-center">
+        화면을 터치하거나 클릭하여 원하는 위치에 떨어뜨리세요!
+      </p>
+    </div>
+
+    <!-- 오른쪽/하단: 8단계 진화표 & 게임 규칙 사이드바 -->
+    <aside class="w-full max-w-[390px] lg:w-72 bg-slate-800/75 border border-slate-700/70 rounded-2xl p-4 shadow-xl backdrop-blur-md">
+      <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-700/80">
+        <h3 class="font-game text-lg text-slate-100 flex items-center gap-1.5">
+          <span>✨</span> 8단계 진화 도감
+        </h3>
+        <button id="quickResetBtn" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-2.5 py-1 rounded-lg transition">
+          초기화
+        </button>
+      </div>
+
+      <!-- 8단계 리스트가 동적으로 렌더링됨 -->
+      <div id="evolutionChart" class="grid grid-cols-2 lg:grid-cols-1 gap-2"></div>
+
+      <div class="mt-4 pt-3 border-t border-slate-700/80 text-xs text-slate-400 space-y-1.5 leading-relaxed">
+        <p>• 같은 단계끼리 부딪히면 다음 단계로 진화합니다.</p>
+        <p>• <span class="text-amber-400 font-semibold">👑 황금코어</span> 두 개가 만나면 초대형 보너스 폭발(<span class="text-amber-300 font-bold">+3,200점</span>)과 함께 사라집니다!</p>
+        <p>• 빨간 점선 위로 넘친 상태로 2초가 지나면 종료됩니다.</p>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. 사용자 지정 8단계 티어 데이터 (변경 금지)
+    // ==========================================
+    const TIERS = [
+      { level: 1, icon: "🌱", name: "씨앗", radius: 16, color: "#38bdf8", score: 10 },
+      { level: 2, icon: "🌿", name: "새싹", radius: 22, color: "#2dd4bf", score: 25 },
+      { level: 3, icon: "🍋", name: "레몬", radius: 29, color: "#facc15", score: 50 },
+      { level: 4, icon: "🍏", name: "청사과", radius: 37, color: "#a3e635", score: 100 },
+      { level: 5, icon: "🍑", name: "복숭아", radius: 46, color: "#fb923c", score: 200 },
+      { level: 6, icon: "🥥", name: "코코넛", radius: 56, color: "#fb7185", score: 400 },
+      { level: 7, icon: "🍈", name: "멜론", radius: 68, color: "#c084fc", score: 800 },
+      { level: 8, icon: "👑", name: "황금코어", radius: 82, color: "#fbbf24", score: 1600 }
+    ];
+
+    // 논리적 게임 해상도 (반응형 스케일링 기준)
+    const LOGICAL_WIDTH = 380;
+    const LOGICAL_HEIGHT = 560;
+    const DANGER_LINE_Y = 92; // 상단 위험선 위치
+    const SPAWN_Y = 44;       // 드롭 대기 위치
+    const DROP_COOLDOWN_MS = 450; // 연타 방지 쿨다운
+
+    // ==========================================
+    // 2. Web Audio API 효과음 합성기 (외부 파일 불필요)
+    // ==========================================
+    class SoundFX {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      toggleMute() {
+        this.muted = !this.muted;
+        return this.muted;
+      }
+
+      // 떨어뜨릴 때 경쾌한 뽁 소리
+      playDrop() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(340, now);
+        osc.frequency.exponentialRampToValueAtTime(160, now + 0.09);
+
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      }
+
+      // 합체(진화) 시 단계별 상승 화음
+      playMerge(level) {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const now = this.ctx.currentTime;
+        const baseFreq = 260 + level * 65;
+
+        // 두 개의 하모닉 오실레이터로 맑은 벨 사운드 생성
+        [1, 1.5].forEach((ratio, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.type = idx === 0 ? 'triangle' : 'sine';
+          osc.frequency.setValueAtTime(baseFreq * ratio, now);
+          osc.frequency.exponentialRampToValueAtTime(baseFreq * ratio * 1.25, now + 0.18);
+
+          gain.gain.setValueAtTime(idx === 0 ? 0.22 : 0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.23);
+        });
+      }
+
+      // 황금코어(8단계)끼리 만났을 때 화려한 팡파레 효과
+      playSuperBonus() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+        notes.forEach((freq, i) => {
+          const now = this.ctx.currentTime + i * 0.06;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.36);
+        });
+      }
+
+      // 게임 오버 사운드
+      playGameOver() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const notes = [330, 293.66, 261.63, 196];
+        notes.forEach((freq, i) => {
+          const now = this.ctx.currentTime + i * 0.14;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.22);
+        });
+      }
+    }
+
+    const sfx = new SoundFX();
+
+    // ==========================================
+    // 3. 게임 상태 및 DOM 요소 참조
+    // ==========================================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasWrapper = document.getElementById('canvasWrapper');
+
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const bestScoreDisplay = document.getElementById('bestScoreDisplay');
+    const nextPreview = document.getElementById('nextPreview');
+    const muteBtn = document.getElementById('muteBtn');
+    const dangerWarning = document.getElementById('dangerWarning');
+    const gameOverOverlay = document.getElementById('gameOverOverlay');
+    const finalScoreDisplay = document.getElementById('finalScoreDisplay');
+    const finalBestDisplay = document.getElementById('finalBestDisplay');
+    const restartBtn = document.getElementById('restartBtn');
+    const quickResetBtn = document.getElementById('quickResetBtn');
+    const evolutionChart = document.getElementById('evolutionChart');
+
+    let score = 0;
+    let bestScore = parseInt(localStorage.getItem('suika_custom_best_score') || '0', 10);
+    bestScoreDisplay.textContent = bestScore.toLocaleString();
+
+    let currentTierIndex = 0; // 0~3 (레벨 1~4)
+    let nextTierIndex = 0;
+    let pointerX = LOGICAL_WIDTH / 2;
+    let canDrop = true;
+    let isGameOver = false;
+    let dangerTimer = 0; // 위험선 초과 누적 시간(ms)
+    let lastTimestamp = 0;
+
+    // 시각 효과 배열 (파티클 & 떠오르는 점수 텍스트)
+    let particles = [];
+    let floatingTexts = [];
+    let mergeLockSet = new Set(); // 동일 프레임 중복 병합 방지용
+
+    // ==========================================
+    // 4. 8단계 진화 도감 UI 렌더링
+    // ==========================================
+    function renderEvolutionChart() {
+      evolutionChart.innerHTML = '';
+      TIERS.forEach((tier, idx) => {
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between bg-slate-900/70 border border-slate-700/60 rounded-xl px-2.5 py-1.5 transition hover:border-slate-500';
+        item.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full flex items-center justify-center text-sm shadow-sm border border-white/20 shrink-0"
+                  style="background: radial-gradient(circle at 30% 30%, #ffffff88, ${tier.color});">
+              ${tier.icon}
+            </span>
+            <div class="flex flex-col">
+              <span class="text-xs font-bold text-slate-200 leading-tight">Lv.${tier.level} ${tier.name}</span>
+              <span class="text-[10px] text-slate-400">+${tier.score}점</span>
+            </div>
+          </div>
+          ${idx < TIERS.length - 1 
+            ? '<span class="text-slate-500 text-xs font-bold">→</span>' 
+            : '<span class="text-amber-400 text-[10px] font-extrabold px-1.5 py-0.5 bg-amber-400/10 rounded">MAX</span>'}
+        `;
+        evolutionChart.appendChild(item);
+      });
+    }
+
+    // ==========================================
+    // 5. Matter.js 물리 엔진 초기화
+    // ==========================================
+    const { Engine, World, Bodies, Body, Events, Composite } = Matter;
+    const engine = Engine.create({
+      gravity: { x: 0, y: 1.35 }
+    });
+    const world = engine.world;
+
+    // 컨테이너 벽면 (바닥, 왼쪽 벽, 오른쪽 벽)
+    const wallThickness = 60;
+    const ground = Bodies.rectangle(
+      LOGICAL_WIDTH / 2,
+      LOGICAL_HEIGHT + wallThickness / 2 - 6,
+      LOGICAL_WIDTH + wallThickness * 2,
+      wallThickness,
+      { isStatic: true, friction: 0.6, restitution: 0.1, label: 'wall' }
+    );
+    const leftWall = Bodies.rectangle(
+      -wallThickness / 2 + 4,
+      LOGICAL_HEIGHT / 2,
+      wallThickness,
+      LOGICAL_HEIGHT * 2,
+      { isStatic: true, friction: 0.3, restitution: 0.1, label: 'wall' }
+    );
+    const rightWall = Bodies.rectangle(
+      LOGICAL_WIDTH + wallThickness / 2 - 4,
+      LOGICAL_HEIGHT / 2,
+      wallThickness,
+      LOGICAL_HEIGHT * 2,
+      { isStatic: true, friction: 0.3, restitution: 0.1, label: 'wall' }
+    );
+
+    World.add(world, [ground, leftWall, rightWall]);
+
+    // ==========================================
+    // 6. 과일 생성, 드롭, 병합 로직
+    // ==========================================
+    function getRandomSpawnIndex() {
+      // 1~4단계(인덱스 0~3) 중 랜덤 스폰
+      return Math.floor(Math.random() * 4);
+    }
+
+    function updateNextPreview() {
+      const nextTier = TIERS[nextTierIndex];
+      nextPreview.textContent = nextTier.icon;
+      nextPreview.style.background = `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.7), ${nextTier.color})`;
+    }
+
+    function clampPointerX(rawX, radius) {
+      const minX = radius + 8;
+      const maxX = LOGICAL_WIDTH - radius - 8;
+      return Math.max(minX, Math.min(maxX, rawX));
+    }
+
+    function createFruitBody(x, y, tierIndex, isMerged = false) {
+      const tier = TIERS[tierIndex];
+      const body = Bodies.circle(x, y, tier.radius, {
+        restitution: 0.22,
+        friction: 0.45,
+        frictionAir: 0.008,
+        density: 0.0015 * (1 + tierIndex * 0.15),
+        label: 'fruit'
+      });
+      body.tierIndex = tierIndex;
+      body.spawnTime = performance.now();
+      body.scaleAnim = isMerged ? 0.35 : 1.0; // 합체 시 탱글하게 커지는 애니메이션용
+      return body;
+    }
+
+    function dropCurrentFruit() {
+      if (!canDrop || isGameOver) return;
+
+      const tier = TIERS[currentTierIndex];
+      const safeX = clampPointerX(pointerX, tier.radius);
+      const fruit = createFruitBody(safeX, SPAWN_Y, currentTierIndex, false);
+      World.add(world, fruit);
+
+      sfx.playDrop();
+      canDrop = false;
+
+      // 다음 과일로 교체
+      currentTierIndex = nextTierIndex;
+      nextTierIndex = getRandomSpawnIndex();
+      updateNextPreview();
+
+      setTimeout(() => {
+        if (!isGameOver) canDrop = true;
+      }, DROP_COOLDOWN_MS);
+    }
+
+    function addScore(points, x, y, color) {
+      score += points;
+      scoreDisplay.textContent = score.toLocaleString();
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestScoreDisplay.textContent = bestScore.toLocaleString();
+        localStorage.setItem('suika_custom_best_score', bestScore.toString());
+      }
+
+      // 떠오르는 점수 텍스트 추가
+      floatingTexts.push({
+        x,
+        y,
+        text: `+${points}`,
+        color: color || '#fbbf24',
+        alpha: 1,
+        vy: -1.4
+      });
+    }
+
+    function spawnBurstParticles(x, y, color, count = 14) {
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+        const speed = 1.8 + Math.random() * 3.5;
+        particles.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: 3 + Math.random() * 4,
+          color,
+          alpha: 1
+        });
+      }
+    }
+
+    // 충돌 이벤트 처리 (같은 티어 병합)
+    Events.on(engine, 'collisionStart', (event) => {
+      if (isGameOver) return;
+
+      const pairs = event.pairs;
+      for (let i = 0; i < pairs.length; i++) {
+        const { bodyA, bodyB } = pairs[i];
+
+        if (bodyA.label === 'fruit' && bodyB.label === 'fruit') {
+          if (
+            bodyA.tierIndex === bodyB.tierIndex &&
+            !mergeLockSet.has(bodyA.id) &&
+            !mergeLockSet.has(bodyB.id)
+          ) {
+            mergeLockSet.add(bodyA.id);
+            mergeLockSet.add(bodyB.id);
+
+            const tierIdx = bodyA.tierIndex;
+            const midX = (bodyA.position.x + bodyB.position.x) / 2;
+            const midY = (bodyA.position.y + bodyB.position.y) / 2;
+
+            // 기존 두 과일 제거
+            World.remove(world, [bodyA, bodyB]);
+
+            if (tierIdx < TIERS.length - 1) {
+              // 다음 단계로 진화
+              const nextIdx = tierIdx + 1;
+              const nextTier = TIERS[nextIdx];
+              const clampedX = clampPointerX(midX, nextTier.radius);
+              const newFruit = createFruitBody(clampedX, midY, nextIdx, true);
+
+              World.add(world, newFruit);
+              addScore(nextTier.score, midX, midY, nextTier.color);
+              spawnBurstParticles(midX, midY, nextTier.color, 14 + nextIdx * 2);
+              sfx.playMerge(nextTier.level);
+            } else {
+              // 8단계 황금코어(👑) 두 개가 만났을 때: 초대형 보너스 폭발!
+              const bonusPoints = TIERS[tierIdx].score * 2; // 3,200점
+              addScore(bonusPoints, midX, midY, '#fbbf24');
+              spawnBurstParticles(midX, midY, '#fbbf24', 36);
+              spawnBurstParticles(midX, midY, '#ffffff', 18);
+              sfx.playSuperBonus();
+            }
+          }
+        }
+      }
+    });
+
+    // ==========================================
+    // 7. 캔버스 렌더링 및 게임 루프
+    // ==========================================
+    function resizeCanvas() {
+      const rect = canvasWrapper.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(
+        (rect.width / LOGICAL_WIDTH) * dpr,
+        0,
+        0,
+        (rect.height / LOGICAL_HEIGHT) * dpr,
+        0,
+        0
+      );
+    }
+
+    // 색상을 밝거나 어둡게 조절하는 유틸리티
+    function shadeColor(hex, percent) {
+      const num = parseInt(hex.replace('#', ''), 16);
+      const amt = Math.round(2.55 * percent);
+      const R = Math.min(255, Math.max(0, (num >> 16) + amt));
+      const G = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amt));
+      const B = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
+      return `rgb(${R}, ${G}, ${B})`;
+    }
+
+    // 젤리처럼 입체적인 과일(구체 + 이모지) 그리기
+    function drawFruitSphere(x, y, radius, angle, tier, alpha = 1) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      // 1) 부드러운 외곽 그림자
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 4;
+
+      // 2) 입체 방사형 그라데이션 본체
+      const grad = ctx.createRadialGradient(
+        -radius * 0.32,
+        -radius * 0.32,
+        radius * 0.1,
+        0,
+        0,
+        radius
+      );
+      grad.addColorStop(0, shadeColor(tier.color, 45));
+      grad.addColorStop(0.55, tier.color);
+      grad.addColorStop(1, shadeColor(tier.color, -32));
+
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // 그림자 리셋
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
+      // 3) 유리 테두리 하이라이트
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.stroke();
+
+      // 4) 상단 좌측 광택 하이라이트
+      ctx.beginPath();
+      ctx.ellipse(-radius * 0.32, -radius * 0.34, radius * 0.28, radius * 0.14, -Math.PI / 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.fill();
+
+      // 5) 중앙 이모지 렌더링
+      const fontSize = Math.floor(radius * 1.18);
+      ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tier.icon, 0, radius * 0.06);
+
+      ctx.restore();
+    }
+
+    function updateAndDraw(timestamp) {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const dt = Math.min(timestamp - lastTimestamp, 40); // 최대 프레임 델타 제한
+      lastTimestamp = timestamp;
+
+      mergeLockSet.clear();
+
+      if (!isGameOver) {
+        Engine.update(engine, 1000 / 60);
+      }
+
+      // 배경 클리어
+      ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+      // 위험선 (점선) 그리기
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([7, 7]);
+      ctx.moveTo(10, DANGER_LINE_Y);
+      ctx.lineTo(LOGICAL_WIDTH - 10, DANGER_LINE_Y);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = dangerTimer > 0 
+        ? `rgba(244, 63, 94, ${0.5 + Math.sin(timestamp * 0.015) * 0.5})` 
+        : 'rgba(244, 63, 94, 0.45)';
+      ctx.stroke();
+      ctx.restore();
+
+      // 드롭 가이드라인 및 대기 중인 과일 미리보기
+      if (canDrop && !isGameOver) {
+        const currentTier = TIERS[currentTierIndex];
+        const previewX = clampPointerX(pointerX, currentTier.radius);
+
+        // 수직 가이드 점선
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([4, 6]);
+        ctx.moveTo(previewX, SPAWN_Y + currentTier.radius);
+        ctx.lineTo(previewX, LOGICAL_HEIGHT - 10);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+        ctx.stroke();
+        ctx.restore();
+
+        // 대기 과일 그리기
+        drawFruitSphere(previewX, SPAWN_Y, currentTier.radius, 0, currentTier, 0.95);
+      }
+
+      // 월드 내 모든 과일 그리기 & 위험선 초과 판정
+      const bodies = Composite.allBodies(world);
+      let isAnyAboveDangerLine = false;
+
+      for (let i = 0; i < bodies.length; i++) {
+        const b = bodies[i];
+        if (b.label !== 'fruit') continue;
+
+        const tier = TIERS[b.tierIndex];
+
+        // 합체 직후 탄성 스케일 애니메이션
+        if (b.scaleAnim < 1) {
+          b.scaleAnim = Math.min(1, b.scaleAnim + 0.08);
+        }
+
+        drawFruitSphere(
+          b.position.x,
+          b.position.y,
+          tier.radius * b.scaleAnim,
+          b.angle,
+          tier,
+          1
+        );
+
+        // 방금 스폰된 지 1.1초 이상 지났고, 속도가 안정화된 과일이 위험선 위에 있는지 체크
+        const aliveTime = timestamp - b.spawnTime;
+        const speed = Math.hypot(b.velocity.x, b.velocity.y);
+        if (aliveTime > 1100 && speed < 1.2 && b.position.y - tier.radius < DANGER_LINE_Y) {
+          isAnyAboveDangerLine = true;
+        }
+      }
+
+      // 게임 오버 타이머 관리 (2초 유지 시 종료)
+      if (!isGameOver) {
+        if (isAnyAboveDangerLine) {
+          dangerTimer += dt;
+          dangerWarning.classList.remove('hidden');
+          if (dangerTimer >= 2000) {
+            triggerGameOver();
+          }
+        } else {
+          dangerTimer = Math.max(0, dangerTimer - dt * 1.5);
+          if (dangerTimer === 0) {
+            dangerWarning.classList.add('hidden');
+          }
+        }
+      }
+
+      // 파티클 업데이트 및 렌더링
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.08; // 미세 중력
+        p.alpha -= 0.028;
+
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // 떠오르는 점수 텍스트 렌더링
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.y += ft.vy;
+        ft.alpha -= 0.022;
+
+        if (ft.alpha <= 0) {
+          floatingTexts.splice(i, 1);
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = ft.alpha;
+        ctx.font = '800 18px "Jua", "Inter", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(ft.text, ft.x, ft.y);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.restore();
+      }
+
+      requestAnimationFrame(updateAndDraw);
+    }
+
+    // ==========================================
+    // 8. 게임 오버 및 재시작 처리
+    // ==========================================
+    function triggerGameOver() {
+      isGameOver = true;
+      dangerWarning.classList.add('hidden');
+      finalScoreDisplay.textContent = score.toLocaleString();
+      finalBestDisplay.textContent = bestScore.toLocaleString();
+      gameOverOverlay.classList.remove('hidden');
+      sfx.playGameOver();
+    }
+
+    function resetGame() {
+      // 모든 과일 바디 제거
+      const bodies = Composite.allBodies(world);
+      bodies.forEach((b) => {
+        if (b.label === 'fruit') {
+          World.remove(world, b);
+        }
+      });
+
+      score = 0;
+      scoreDisplay.textContent = '0';
+      dangerTimer = 0;
+      isGameOver = false;
+      canDrop = true;
+      particles = [];
+      floatingTexts = [];
+      mergeLockSet.clear();
+
+      currentTierIndex = getRandomSpawnIndex();
+      nextTierIndex = getRandomSpawnIndex();
+      updateNextPreview();
+
+      dangerWarning.classList.add('hidden');
+      gameOverOverlay.classList.add('hidden');
+    }
+
+    // ==========================================
+    // 9. 마우스 및 터치 입력 이벤트 바인딩
+    // ==========================================
+    function updatePointerFromClientX(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const relativeX = clientX - rect.left;
+      pointerX = (relativeX / rect.width) * LOGICAL_WIDTH;
+    }
+
+    // 데스크탑 마우스 이벤트
+    canvas.addEventListener('mousemove', (e) => {
+      if (isGameOver) return;
+      updatePointerFromClientX(e.clientX);
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (isGameOver) return;
+      updatePointerFromClientX(e.clientX);
+      dropCurrentFruit();
+    });
+
+    // 모바일 터치 이벤트 (드래그 조준 후 손을 뗄 때 드롭)
+    canvas.addEventListener('touchstart', (e) => {
+      if (isGameOver) return;
+      if (e.touches.length > 0) {
+        updatePointerFromClientX(e.touches[0].clientX);
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (isGameOver) return;
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        updatePointerFromClientX(e.touches[0].clientX);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (isGameOver) return;
+      dropCurrentFruit();
+    });
+
+    // 버튼 이벤트
+    muteBtn.addEventListener('click', () => {
+      const isMuted = sfx.toggleMute();
+      muteBtn.textContent = isMuted ? '🔇' : '🔊';
+    });
+
+    restartBtn.addEventListener('click', resetGame);
+    quickResetBtn.addEventListener('click', resetGame);
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // ==========================================
+    // 10. 초기 실행
+    // ==========================================
+    window.onload = () => {
+      renderEvolutionChart();
+      resizeCanvas();
+      currentTierIndex = getRandomSpawnIndex();
+      nextTierIndex = getRandomSpawnIndex();
+      updateNextPreview();
+      requestAnimationFrame(updateAndDraw);
+    };
+  </script>
+</body>
+</html>
